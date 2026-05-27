@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>UK Car Price Checker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#0d0f1a;--surface:#141728;--surface2:#1c2035;--border:#252a45;
+      --accent:#4f7ef8;--green:#22c55e;--amber:#f59e0b;--red:#ef4444;
+      --muted:#7c85a8;--text:#eef0f8;--r:12px;
+    }
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);
+         min-height:100vh;display:flex;flex-direction:column;align-items:center;
+         padding:28px 16px 80px}
+
+    /* ── Header ── */
+    header{text-align:center;margin-bottom:26px}
+    .logo{display:inline-flex;align-items:center;gap:10px;margin-bottom:8px}
+    .logo-icon{width:42px;height:42px;background:linear-gradient(135deg,#4f7ef8,#a855f7);
+               border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:20px}
+    h1{font-size:1.8rem;font-weight:900;background:linear-gradient(135deg,#fff 40%,#4f7ef8);
+       -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .subtitle{color:var(--muted);font-size:.83rem;margin-top:4px;max-width:520px;line-height:1.5}
+
+    /* ── Search form ── */
+    .search-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+                 padding:20px 24px;width:100%;max-width:660px;margin-bottom:24px}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    @media(max-width:500px){.form-grid{grid-template-columns:1fr}}
+    .field{display:flex;flex-direction:column;gap:4px}
+    .field-label{font-size:.68rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+    .field-input{background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;
+                 color:var(--text);font-family:'Inter',sans-serif;font-size:.93rem;
+                 font-weight:500;padding:10px 13px;outline:none;transition:border-color .2s;width:100%}
+    .field-input::placeholder{color:var(--muted);font-weight:400}
+    .field-input:focus{border-color:var(--accent)}
+    .reg-input{font-size:1.1rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+    .check-btn{grid-column:1/-1;background:linear-gradient(135deg,#4f7ef8,#a855f7);
+               border:none;border-radius:9px;color:#fff;cursor:pointer;
+               font-family:'Inter',sans-serif;font-size:.95rem;font-weight:700;
+               padding:13px;transition:opacity .2s;margin-top:2px}
+    .check-btn:hover{opacity:.88}
+    .check-btn:disabled{opacity:.4;cursor:not-allowed}
+    .form-hint{grid-column:1/-1;font-size:.68rem;color:var(--muted);line-height:1.5;margin-top:2px}
+
+    /* ── Status ── */
+    #status{width:100%;max-width:1080px}
+    .loader{text-align:center;padding:60px 20px}
+    .spinner{width:42px;height:42px;border:3px solid var(--border);border-top-color:var(--accent);
+             border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .loader p{color:var(--muted);font-size:.86rem}
+    .loader p+p{margin-top:3px;font-size:.72rem}
+    .error-box{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:var(--r);
+               padding:14px 18px;color:#fca5a5;display:flex;align-items:center;gap:10px}
+
+    /* ── Results layout ── */
+    .results{display:flex;flex-direction:column;gap:24px;animation:fadeUp .4s ease}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+    /* ── Section heading ── */
+    .section-heading{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+    .section-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;
+                 justify-content:center;font-size:.75rem;font-weight:800;flex-shrink:0}
+    .section-num.trade{background:rgba(34,197,94,.2);color:#4ade80}
+    .section-num.retail{background:rgba(79,126,248,.2);color:#93c5fd}
+    .section-title{font-size:1rem;font-weight:700}
+    .section-sub{font-size:.76rem;color:var(--muted);margin-top:1px}
+
+    /* ── Vehicle banner ── */
+    .vehicle-banner{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+                    padding:16px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+    .reg-badge{background:#f0c619;color:#000;font-weight:900;font-size:1.3rem;
+               letter-spacing:.12em;border-radius:7px;padding:7px 14px;
+               border:2px solid #d4a800;white-space:nowrap;flex-shrink:0}
+    .vehicle-info{flex:1;min-width:200px}
+    .vehicle-title{font-size:.96rem;font-weight:700;line-height:1.35;margin-bottom:6px}
+    .vehicle-specs{display:flex;flex-wrap:wrap;gap:6px}
+    .spec-chip{font-size:.7rem;background:var(--surface2);border:1px solid var(--border);
+               border-radius:5px;padding:3px 8px;color:var(--muted);font-weight:500}
+    .spec-chip.highlight{border-color:rgba(79,126,248,.3);color:#93c5fd}
+
+    /* ── Trade price cards ── */
+    .trade-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+    @media(max-width:640px){.trade-grid{grid-template-columns:1fr}}
+    .trade-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+    .trade-card-head{background:var(--surface2);border-bottom:1px solid var(--border);
+                     padding:11px 16px;display:flex;align-items:center;gap:8px}
+    .trade-logo{font-size:.75rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+    .trade-body{padding:16px}
+    .trade-price{font-size:2rem;font-weight:900;color:var(--green);letter-spacing:-.02em;
+                 line-height:1;margin-bottom:5px}
+    .trade-price.na{font-size:1.1rem;color:var(--muted);font-weight:500}
+    .trade-sub{font-size:.7rem;color:var(--muted);margin-bottom:12px;line-height:1.5}
+    .trade-details{border-top:1px solid var(--border);padding-top:10px;margin-top:4px}
+    .trade-row{display:flex;justify-content:space-between;font-size:.75rem;
+               padding:4px 0;border-bottom:1px solid var(--border);color:var(--muted)}
+    .trade-row:last-child{border-bottom:none}
+    .trade-row span:last-child{font-weight:600;color:var(--text);text-align:right;max-width:55%}
+    .trade-link{display:block;margin-top:12px;text-align:center;color:var(--accent);
+                font-size:.72rem;text-decoration:none;font-weight:600}
+    .trade-link:hover{text-decoration:underline}
+    .otp-note{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);
+              border-radius:7px;padding:9px 12px;font-size:.71rem;color:#fcd34d;
+              line-height:1.55;margin-top:8px}
+
+    /* ── Trade summary bar ── */
+    .trade-summary{background:linear-gradient(135deg,rgba(34,197,94,.08),rgba(34,197,94,.02));
+                   border:1px solid rgba(34,197,94,.2);border-radius:var(--r);
+                   padding:14px 18px;display:flex;align-items:center;justify-content:space-between;
+                   flex-wrap:wrap;gap:10px}
+    .trade-summary-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:#86efac;font-weight:700}
+    .trade-summary-range{font-size:1.2rem;font-weight:800;color:var(--green)}
+    .trade-summary-note{font-size:.72rem;color:var(--muted)}
+
+    /* ── AutoTrader retail section ── */
+    .at-section{display:flex;flex-direction:column;gap:16px}
+    .at-filter-bar{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+                   padding:13px 18px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+    .at-filter-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;
+                     color:var(--muted);font-weight:700;margin-right:4px}
+    .filter-pill{font-size:.72rem;padding:3px 9px;border-radius:16px;font-weight:600;
+                 background:rgba(79,126,248,.15);color:#93c5fd;border:1px solid rgba(79,126,248,.25)}
+    .filter-pill.exact{background:rgba(34,197,94,.12);color:#86efac;border-color:rgba(34,197,94,.25)}
+
+    /* Screenshot frame */
+    .at-frame{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+    .at-frame-bar{background:var(--surface2);border-bottom:1px solid var(--border);padding:8px 14px;
+                  display:flex;align-items:center;gap:10px}
+    .frame-dots{display:flex;gap:5px}
+    .frame-dots span{width:10px;height:10px;border-radius:50%}
+    .frame-url{flex:1;background:rgba(255,255,255,.05);border-radius:5px;padding:4px 10px;
+               font-size:.68rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .at-screenshot{width:100%;display:block}
+    .cf-note{background:rgba(245,158,11,.08);border-top:1px solid var(--border);
+             padding:8px 14px;font-size:.7rem;color:#fcd34d}
+
+    /* Listings */
+    .at-listings{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+    .at-list-head{background:var(--surface2);border-bottom:1px solid var(--border);
+                  padding:12px 18px;display:flex;align-items:center;justify-content:space-between}
+    .at-list-title{font-size:.82rem;font-weight:700}
+    .at-price-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:14px 18px;
+                  border-bottom:1px solid var(--border)}
+    @media(max-width:500px){.at-price-row{grid-template-columns:1fr}}
+    .at-stat{text-align:center}
+    .at-stat-label{font-size:.65rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:4px}
+    .at-stat-val{font-size:1.4rem;font-weight:800}
+    .at-stat-val.green{color:var(--green)}.at-stat-val.amber{color:var(--amber)}
+    .listing-scroll{max-height:440px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+    .listing-row{display:flex;gap:12px;padding:12px 18px;border-bottom:1px solid var(--border)}
+    .listing-row:last-child{border-bottom:none}
+    .listing-img{width:88px;height:64px;border-radius:6px;object-fit:cover;background:var(--surface2);flex-shrink:0}
+    .listing-img-ph{width:88px;height:64px;border-radius:6px;background:var(--surface2);flex-shrink:0;
+                    display:flex;align-items:center;justify-content:center;font-size:1.4rem}
+    .listing-body{flex:1;min-width:0}
+    .listing-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:5px}
+    .listing-name{font-size:.82rem;font-weight:600;line-height:1.35;flex:1;
+                  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .listing-price{font-size:.95rem;font-weight:800;color:var(--green);white-space:nowrap}
+    .listing-pills{display:flex;flex-wrap:wrap;gap:4px}
+    .pill{font-size:.67rem;padding:2px 7px;border-radius:14px;background:var(--surface2);color:var(--muted)}
+    .pill-close{background:rgba(34,197,94,.1);color:#86efac}
+    .conf-badge{font-size:.62rem;font-weight:700;padding:2px 6px;border-radius:4px;
+                text-transform:uppercase;letter-spacing:.04em}
+    .conf-High{background:rgba(34,197,94,.15);color:#86efac}
+    .conf-Medium{background:rgba(245,158,11,.15);color:#fcd34d}
+    .conf-Low{background:rgba(239,68,68,.15);color:#fca5a5}
+    .at-list-link{display:block;padding:10px 18px;text-align:center;color:var(--accent);
+                  font-size:.76rem;text-decoration:none;font-weight:600;border-top:1px solid var(--border)}
+    .at-list-link:hover{text-decoration:underline}
+    .no-listings{text-align:center;padding:28px;color:var(--muted);font-size:.84rem;line-height:1.7}
+    .warn-line{font-size:.72rem;color:#fcd34d;margin-top:6px;line-height:1.5}
+
+    /* Retail vs trade gap */
+    .gap-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px}
+    .gap-title{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+               color:var(--muted);margin-bottom:14px}
+    .gap-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    @media(max-width:500px){.gap-grid{grid-template-columns:1fr}}
+    .gap-box{background:var(--surface2);border-radius:8px;padding:13px}
+    .gap-box-label{font-size:.67rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px}
+    .gap-box-val{font-size:1.1rem;font-weight:800}
+    .gap-insight{margin-top:14px;font-size:.82rem;line-height:1.65;color:var(--muted)}
+    .gap-insight strong{color:var(--text)}
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><div class="logo-icon">🚗</div><h1>Car Price Checker</h1></div>
+  <p class="subtitle">Enter a registration &amp; mileage — we get the trade buying price from WBAC, Carwow &amp; Motorway, then find the exact retail price on AutoTrader.</p>
+</header>
+
+<div class="search-card">
+  <div class="form-grid">
+    <div class="field">
+      <label class="field-label" for="regInput">Registration</label>
+      <input id="regInput" class="field-input reg-input" type="text"
+             placeholder="e.g. FG63 ACY" maxlength="8" autocomplete="off" spellcheck="false"/>
+    </div>
+    <div class="field">
+      <label class="field-label" for="mileageInput">Current Mileage</label>
+      <input id="mileageInput" class="field-input" type="number"
+             placeholder="e.g. 42000" min="0"/>
+    </div>
+    <div class="field">
+      <label class="field-label" for="makeInput">Make <span style="color:var(--muted);font-weight:400">(optional — auto-filled)</span></label>
+      <input id="makeInput" class="field-input" type="text" placeholder="e.g. Porsche"/>
+    </div>
+    <div class="field">
+      <label class="field-label" for="modelInput">Model <span style="color:var(--muted);font-weight:400">(optional — auto-filled)</span></label>
+      <input id="modelInput" class="field-input" type="text" placeholder="e.g. 911"/>
+    </div>
+    <button class="check-btn" id="searchBtn" onclick="checkCar()">Get Trade &amp; Retail Prices</button>
+    <p class="form-hint">
+      <strong style="color:var(--text)">Part 1</strong> — WBAC, Carwow &amp; Motorway will tell us what they'd pay to buy your car today.<br/>
+      <strong style="color:var(--text)">Part 2</strong> — AutoTrader will show what the same car sells for at retail, matched exactly on make, model, year, fuel, gearbox &amp; body type.
+    </p>
+  </div>
+</div>
+
+<div id="status"></div>
+
+<script>
+const regInput     = document.getElementById('regInput');
+const mileageInput = document.getElementById('mileageInput');
+const makeInput    = document.getElementById('makeInput');
+const modelInput   = document.getElementById('modelInput');
+const btn          = document.getElementById('searchBtn');
+const status       = document.getElementById('status');
+
+[regInput, mileageInput, makeInput, modelInput].forEach(el =>
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') checkCar(); })
+);
+
+function busy(on) {
+  btn.disabled    = on;
+  btn.textContent = on ? 'Fetching prices from all sources…' : 'Get Trade & Retail Prices';
+}
+function showError(msg) {
+  status.innerHTML = `<div class="error-box"><span>⚠️</span><div>${msg}</div></div>`;
+}
+function showLoader() {
+  status.innerHTML = `
+    <div class="loader">
+      <div class="spinner"></div>
+      <p>Contacting DVLA · WBAC · Carwow · Motorway · AutoTrader…</p>
+      <p>All sources run in parallel — allow 40–70 seconds</p>
+    </div>`;
+}
+
+const gbp = n => n != null && n !== '' ? '£' + Number(n).toLocaleString('en-GB') : '—';
+const mi  = n => n != null ? Number(n).toLocaleString('en-GB') + ' mi' : null;
+const f   = v => (v && v !== 'null') ? v : '—';
+
+// ── Vehicle Banner ──────────────────────────────────────────────────────────
+function renderVehicleBanner(reg, v, wbac, mwy) {
+  const title   = wbac.wbac_description || wbac.variant
+                  || `${f(v.make)} ${f(v.model)}`.trim() || '—';
+  const yr      = v.year        || wbac.wbac_year  || mwy.year || '—';
+  const fuel    = v.fuel_type   || wbac.fuel_type  || mwy.fuel_type  || '—';
+  const trans   = v.transmission|| wbac.transmission || mwy.transmission || '—';
+  const body    = v.body_type   || wbac.body_type  || mwy.body_type  || '—';
+  const engine  = v.engine_size || '—';
+  const colour  = v.colour      || wbac.wbac_colour || mwy.colour || '—';
+  const mileage = v.mileage     || '—';
+
+  const specs = [
+    yr     !== '—' ? {l:'Year',     v:yr,    hi:true}  : null,
+    fuel   !== '—' ? {l:'Fuel',     v:fuel,  hi:true}  : null,
+    trans  !== '—' ? {l:'Gearbox',  v:trans, hi:true}  : null,
+    body   !== '—' ? {l:'Body',     v:body,  hi:true}  : null,
+    engine !== '—' ? {l:'Engine',   v:engine}           : null,
+    colour !== '—' ? {l:'Colour',   v:colour}           : null,
+    mileage!== '—' ? {l:'Mileage',  v:mileage}          : null,
+    v.tax_status   ? {l:'Tax',      v:v.tax_status}     : null,
+    v.mot_status   ? {l:'MOT',      v:v.mot_status}     : null,
+    v.mot_expiry   ? {l:'MOT Exp',  v:v.mot_expiry}     : null,
+  ].filter(Boolean);
+
+  return `
+    <div class="vehicle-banner">
+      <div class="reg-badge">${reg}</div>
+      <div class="vehicle-info">
+        <div class="vehicle-title">${title}</div>
+        <div class="vehicle-specs">
+          ${specs.map(s=>`<span class="spec-chip ${s.hi?'highlight':''}">${s.l}: ${s.v}</span>`).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Trade Card ──────────────────────────────────────────────────────────────
+function renderTradeCard(icon, name, data, directUrl, fallbackUrl) {
+  const price   = data.valuation_price || data.valuation;
+  const priceN  = data.valuation_num;
+  const desc    = data.wbac_description || data.vehicle_description;
+  const warns   = data.warnings || [];
+  const hasOtp  = warns.some(w => w.includes('OTP') || w.includes('email verif'));
+  const url     = data.wbac_url || data.sourceUrl || directUrl || fallbackUrl;
+
+  // Detect Motorway bot detection warning
+  const isBotBlocked = warns.some(w =>
+    w.toLowerCase().includes('bot detection') ||
+    w.toLowerCase().includes('mileage page') ||
+    w.toLowerCase().includes('not visible')
+  );
+
+  let priceHtml = '';
+  if (price) {
+    priceHtml = `<div class="trade-price">${price}</div>`;
+  } else if (hasOtp) {
+    // Carwow OTP - vehicle confirmed, just need email click
+    priceHtml = `<div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);
+                             border-radius:8px;padding:12px 14px;margin-bottom:10px">
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+                  color:#86efac;margin-bottom:5px">✅ Vehicle Confirmed</div>
+      <div style="font-size:.82rem;color:var(--muted)">
+        Check <strong style="color:var(--text)">samroid78@gmail.com</strong> for the Carwow valuation link.<br/>
+        <a href="${url}" target="_blank" rel="noopener"
+           style="color:var(--accent);font-weight:600">Open Carwow valuation →</a>
+      </div>
+    </div>`;
+  } else if (isBotBlocked) {
+    priceHtml = `<div style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);
+                             border-radius:8px;padding:11px 14px;margin-bottom:10px;font-size:.78rem;
+                             color:var(--muted);line-height:1.55">
+      <strong style="color:#fcd34d">Temporarily unavailable</strong><br/>
+      ${name} is blocking automated requests right now (this is normal after multiple lookups).<br/>
+      <a href="${url||fallbackUrl}" target="_blank" rel="noopener"
+         style="color:var(--accent);font-weight:600">Get ${name} valuation manually →</a>
+    </div>`;
+  } else {
+    priceHtml = `<div class="trade-price na">—</div>`;
+  }
+
+  let subText = '';
+  if (name === 'WBAC')     subText = 'Guaranteed 4 days · subject to inspection';
+  if (name === 'Carwow')   subText = 'Multiple dealer auction — typically highest offer';
+  if (name === 'Motorway') subText = 'Instant online offer from dealer network';
+
+  // Vehicle rows from this source
+  const rows = [
+    data.variant || data.wbac_description ? ['Variant', (data.variant||data.wbac_description||'').split('•')[0].trim()] : null,
+    data.wbac_year || data.year ? ['Year', data.wbac_year||data.year] : null,
+    data.wbac_colour || data.colour ? ['Colour', data.wbac_colour||data.colour] : null,
+    data.transmission ? ['Gearbox', data.transmission] : null,
+    data.fuel_type ? ['Fuel', data.fuel_type] : null,
+    data.body_type ? ['Body', data.body_type] : null,
+    data.model ? ['Model', data.model] : null,
+  ].filter(Boolean).slice(0, 4);
+
+  return `
+    <div class="trade-card">
+      <div class="trade-card-head">
+        <span style="font-size:1.1rem">${icon}</span>
+        <span class="trade-logo">${name}</span>
+        ${price ? '<span style="font-size:.65rem;color:#86efac;margin-left:auto;font-weight:700">CONFIRMED</span>' : ''}
+      </div>
+      <div class="trade-body">
+        ${priceHtml}
+        <div class="trade-sub">${subText}</div>
+        ${rows.length ? `
+          <div class="trade-details">
+            ${rows.map(r=>`<div class="trade-row"><span>${r[0]}</span><span>${r[1]||'—'}</span></div>`).join('')}
+          </div>` : ''}
+        ${warns.length && !hasOtp && !price && !isBotBlocked ? `<div class="otp-note" style="font-size:.72rem">${warns[0].substring(0,140)}</div>` : ''}
+        <a class="trade-link" href="${url||fallbackUrl}" target="_blank" rel="noopener">
+          ${price ? 'View offer →' : 'Get valuation →'}
+        </a>
+      </div>
+    </div>`;
+}
+
+// ── AutoTrader Section ──────────────────────────────────────────────────────
+function renderAutoTrader(at, v, wbac, mwy, mileage) {
+  const listings  = at.listings   || [];
+  const searchUrl = at.search_url || 'https://www.autotrader.co.uk/car-search';
+  const screenshot= at.screenshot || null;
+  const cfHit     = at.cloudflare_hit || false;
+  const warns     = at.warnings   || [];
+  const filterLbl = at.filter_label || '';
+
+  // Exact filters used
+  const yr    = v.year        || wbac.wbac_year  || mwy.year || '?';
+  const fuel  = v.fuel_type   || wbac.fuel_type  || '—';
+  const trans = v.transmission|| wbac.transmission|| '—';
+  const body  = v.body_type   || wbac.body_type  || '—';
+  const make  = makeInput.value.trim() || f(v.make);
+  const model = modelInput.value.trim() || v.model || '?';
+
+  const filterPills = [
+    make  ? {l:make, exact:true}                                          : null,
+    model ? {l:model, exact:true}                                         : null,
+    yr!=='?' ? {l:`Year: ${yr}`, exact:true}                              : null,
+    fuel!=='—' ? {l:fuel, exact:true}                                     : null,
+    trans!=='—' ? {l:trans, exact:true}                                   : null,
+    body!=='—' ? {l:body, exact:true}                                     : null,
+    mileage ? {l:`${Number(mileage-10000).toLocaleString('en-GB')} – ${Number(mileage+10000).toLocaleString('en-GB')} mi`} : null,
+  ].filter(Boolean);
+
+  // Screenshot frame
+  let ssHtml = '';
+  if (screenshot) {
+    ssHtml = `
+      <div class="at-frame">
+        <div class="at-frame-bar">
+          <div class="frame-dots">
+            <span style="background:#ef4444"></span>
+            <span style="background:#f59e0b"></span>
+            <span style="background:#22c55e"></span>
+          </div>
+          <div class="frame-url">${searchUrl}</div>
+          <a href="${searchUrl}" target="_blank" rel="noopener"
+             style="font-size:.66rem;color:var(--accent);text-decoration:none;white-space:nowrap">Open ↗</a>
+        </div>
+        <img class="at-screenshot" src="data:image/jpeg;base64,${screenshot}" alt="AutoTrader results" loading="lazy"/>
+        ${cfHit ? '<div class="cf-note">⚠️ Cloudflare security check was active on this load. Results may be limited.</div>' : ''}
+      </div>`;
+  }
+
+  // Price stats
+  const prices = listings.map(l=>l.price_num).filter(Boolean);
+  const avg    = prices.length ? Math.round(prices.reduce((a,b)=>a+b,0)/prices.length) : null;
+  const low    = prices.length ? Math.min(...prices) : null;
+  const high   = prices.length ? Math.max(...prices) : null;
+
+  let statsHtml = '';
+  if (prices.length) {
+    statsHtml = `
+      <div class="at-price-row">
+        <div class="at-stat"><div class="at-stat-label">Lowest asking</div><div class="at-stat-val green">${gbp(low)}</div></div>
+        <div class="at-stat"><div class="at-stat-label">Average asking</div><div class="at-stat-val amber">${gbp(avg)}</div></div>
+        <div class="at-stat"><div class="at-stat-label">Highest asking</div><div class="at-stat-val" style="color:#f87171">${gbp(high)}</div></div>
+      </div>`;
+  }
+
+  let listHtml = '';
+  if (listings.length === 0) {
+    listHtml = `<div class="no-listings">
+      No exact-match listings found on AutoTrader for this spec.<br/>
+      ${warns.filter(w=>!w.includes('Cloudflare')).map(w=>`<div class="warn-line">${w}</div>`).join('')}
+    </div>`;
+  } else {
+    listHtml = `<div class="listing-scroll">
+      ${listings.map(l => {
+        const conf   = l.matchConfidence || 'Low';
+        const mDiff  = mileage && l.mileage ? Math.abs(l.mileage - mileage) : null;
+        const close  = mDiff != null && mDiff <= 10000;
+        return `
+          <div class="listing-row">
+            ${l.image
+              ? `<img class="listing-img" src="${l.image}" loading="lazy"
+                      onerror="this.parentElement.innerHTML='<div class=listing-img-ph>🚗</div>'">`
+              : '<div class="listing-img-ph">🚗</div>'}
+            <div class="listing-body">
+              <div class="listing-top">
+                <div class="listing-name">${l.title || '—'}</div>
+                <div class="listing-price">${gbp(l.price_num)}</div>
+              </div>
+              <div class="listing-pills">
+                <span class="conf-badge conf-${conf}">${conf} match</span>
+                ${l.year    ? `<span class="pill">${l.year}</span>`                                         : ''}
+                ${l.mileage ? `<span class="pill ${close?'pill-close':''}">${mi(l.mileage)}</span>`        : ''}
+                ${l.fuel_type    ? `<span class="pill">${l.fuel_type}</span>`    : ''}
+                ${l.transmission ? `<span class="pill">${l.transmission}</span>` : ''}
+              </div>
+              ${l.matchReasons && l.matchReasons.length ? `<div class="listing-pills" style="margin-top:4px">
+                ${l.matchReasons.slice(0,4).map(r=>`<span class="pill" style="font-size:.6rem;color:var(--muted)">${r}</span>`).join('')}
+              </div>` : ''}
+              ${l.link ? `<a href="${l.link}" target="_blank" rel="noopener"
+                           style="font-size:.68rem;color:var(--accent);text-decoration:none">View listing →</a>` : ''}
+            </div>
+          </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  return `
+    <div class="at-section">
+      <div class="at-filter-bar">
+        <span class="at-filter-label">Exact filter</span>
+        ${filterPills.map(p=>`<span class="filter-pill ${p.exact?'exact':''}">${p.l}</span>`).join('')}
+        ${filterLbl ? `<span style="font-size:.68rem;color:var(--muted);margin-left:4px">· ${filterLbl}</span>` : ''}
+      </div>
+      ${ssHtml}
+      <div class="at-listings">
+        <div class="at-list-head">
+          <span class="at-list-title">
+            ${listings.length > 0 ? `${listings.length} matching listings` : 'Listings'}
+            &nbsp;·&nbsp; <span style="color:var(--muted);font-weight:400">sorted by closest match</span>
+          </span>
+          ${at.source_used ? `<span style="font-size:.68rem;color:var(--muted)">${at.source_used}</span>` : ''}
+        </div>
+        ${statsHtml}
+        ${listHtml}
+        <a class="at-list-link" href="${searchUrl}" target="_blank" rel="noopener">
+          View all results on AutoTrader →
+        </a>
+      </div>
+    </div>`;
+}
+
+// ── Trade vs Retail Gap ─────────────────────────────────────────────────────
+function renderGap(wbac, at) {
+  const tradePrice = wbac.valuation_num;
+  const atPrices   = (at.listings || []).map(l=>l.price_num).filter(Boolean);
+  const atAvg      = atPrices.length ? Math.round(atPrices.reduce((a,b)=>a+b,0)/atPrices.length) : null;
+  const atLow      = atPrices.length ? Math.min(...atPrices) : null;
+
+  if (!tradePrice && !atAvg) return '';
+
+  const gap     = atAvg && tradePrice ? atAvg - tradePrice : null;
+  const gapPct  = gap && atAvg ? Math.round((gap/atAvg)*100) : null;
+
+  let insight = '';
+  if (tradePrice && atAvg) {
+    insight = `WBAC's offer of <strong>${gbp(tradePrice)}</strong> is
+      ${gap > 0 ? `~${gapPct}% below` : 'at or above'} the AutoTrader retail average of <strong>${gbp(atAvg)}</strong>.
+      This <strong>~${gbp(Math.abs(gap||0))} gap</strong> represents the dealer's margin —
+      buying cheap from trade, selling at retail.`;
+    if (atLow) {
+      insight += ` The cheapest comparable listing is <strong>${gbp(atLow)}</strong>.`;
+    }
+  } else if (tradePrice) {
+    insight = `WBAC will pay <strong>${gbp(tradePrice)}</strong> for this car. AutoTrader retail data not available.`;
+  } else {
+    insight = `AutoTrader retail average: <strong>${gbp(atAvg)}</strong>. Trade buying price not retrieved.`;
+  }
+
+  return `
+    <div class="gap-card">
+      <div class="gap-title">Trade vs Retail Price Gap</div>
+      <div class="gap-grid">
+        <div class="gap-box">
+          <div class="gap-box-label">Trade buying (WBAC)</div>
+          <div class="gap-box-val" style="color:var(--green)">${gbp(tradePrice) || '—'}</div>
+        </div>
+        <div class="gap-box">
+          <div class="gap-box-label">Retail asking (AutoTrader avg)</div>
+          <div class="gap-box-val" style="color:var(--amber)">${gbp(atAvg) || '—'}</div>
+        </div>
+        ${gap != null ? `
+        <div class="gap-box">
+          <div class="gap-box-label">Price gap (dealer margin)</div>
+          <div class="gap-box-val" style="color:#f87171">~${gbp(Math.abs(gap))}</div>
+        </div>` : ''}
+        ${atPrices.length ? `
+        <div class="gap-box">
+          <div class="gap-box-label">AutoTrader lowest listing</div>
+          <div class="gap-box-val" style="color:var(--green)">${gbp(atLow)}</div>
+        </div>` : ''}
+      </div>
+      <p class="gap-insight">${insight}</p>
+    </div>`;
+}
+
+// ── Main ────────────────────────────────────────────────────────────────────
+async function checkCar() {
+  const reg     = regInput.value.trim();
+  const mileage = parseInt(mileageInput.value) || 0;
+  const make    = makeInput.value.trim();
+  const model   = modelInput.value.trim();
+
+  if (!reg)     { regInput.focus(); return; }
+  if (!mileage) { mileageInput.focus(); showError('Please enter your current mileage.'); return; }
+
+  busy(true);
+  showLoader();
+
+  try {
+    const res  = await fetch('/api/check', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({registration:reg, make, model, mileage}),
+    });
+    const data = await res.json();
+    if (!res.ok) { showError(data.error || 'Something went wrong.'); return; }
+
+    const v    = data.vehicle    || {};
+    const wbac = data.wbac       || {};
+    const at   = data.autotrader || {};
+    const mwy  = data.motorway   || {};
+    const cw   = data.carwow     || {};
+
+    // Trade price values for summary bar
+    const tradePrices = [
+      wbac.valuation_num,
+      mwy.valuation_num,
+      cw.valuation_num,
+    ].filter(Boolean);
+    const tradeMin = tradePrices.length ? Math.min(...tradePrices) : null;
+    const tradeMax = tradePrices.length ? Math.max(...tradePrices) : null;
+
+    status.innerHTML = `
+      <div class="results">
+
+        <!-- Vehicle Banner -->
+        ${renderVehicleBanner(data.registration, v, wbac, mwy)}
+
+        <!-- SECTION 1: Trade Buying Prices -->
+        <div>
+          <div class="section-heading">
+            <div class="section-num trade">1</div>
+            <div>
+              <div class="section-title">Trade Buying Prices — What they'll pay to BUY your car</div>
+              <div class="section-sub">These are the amounts WBAC, Carwow and Motorway will offer you today</div>
+            </div>
+          </div>
+          <div class="trade-grid">
+            ${renderTradeCard('💰','WBAC', wbac, wbac.wbac_url, `https://www.webuyanycar.com/car-valuation/?vrm=${data.registration}`)}
+            ${renderTradeCard('🚗','Carwow', cw, cw.carwow_direct_url, `https://www.carwow.co.uk/sell-my-car?vrm=${data.registration}`)}
+            ${renderTradeCard('🛣️','Motorway', mwy, mwy.sourceUrl, `https://motorway.co.uk/car-valuation?reg=${data.registration}`)}
+          </div>
+          ${tradePrices.length ? `
+          <div class="trade-summary" style="margin-top:14px">
+            <div>
+              <div class="trade-summary-label">Trade buying range</div>
+              <div class="trade-summary-range">
+                ${tradeMin === tradeMax ? gbp(tradeMin) : `${gbp(tradeMin)} – ${gbp(tradeMax)}`}
+              </div>
+            </div>
+            <div class="trade-summary-note">
+              ${tradePrices.length} confirmed offer${tradePrices.length>1?'s':''} from trade buyers
+            </div>
+          </div>` : ''}
+        </div>
+
+        <!-- SECTION 2: Retail Prices on AutoTrader -->
+        <div>
+          <div class="section-heading">
+            <div class="section-num retail">2</div>
+            <div>
+              <div class="section-title">AutoTrader Retail Prices — What the same car sells for</div>
+              <div class="section-sub">Exact match: same make, model, year, fuel, gearbox, body type · mileage ±10,000 miles</div>
+            </div>
+          </div>
+          ${renderAutoTrader(at, v, wbac, mwy, mileage)}
+        </div>
+
+        <!-- Trade vs Retail Gap -->
+        ${renderGap(wbac, at)}
+
+      </div>`;
+
+  } catch(_) {
+    showError('<strong>Cannot reach the server.</strong><br/>Run <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">python app.py</code> then open <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">http://localhost:5000</code>');
+  } finally {
+    busy(false);
+  }
+}
+</script>
+</body>
+</html>
