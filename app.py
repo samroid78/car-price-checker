@@ -17,7 +17,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-flask_app = Flask(__name__)
+app = Flask(__name__)
 
 GOVUK_VE_BASE = "https://vehicleenquiry.service.gov.uk"
 HEADERS = {
@@ -243,12 +243,12 @@ def _build_insight(wbac_data: dict, at_data: dict, motorway_data: dict,
 # ── Flask routes ────────────────────────────────────────────────────────────
 
 
-@flask_app.route("/")
+@app.route("/")
 def index():
     return render_template("index.html")
 
 
-@flask_app.route("/api/check", methods=["POST"])
+@app.route("/api/check", methods=["POST"])
 def check_car():
     body = request.get_json(silent=True) or {}
 
@@ -376,4 +376,4 @@ def check_car():
 
 if __name__ == "__main__":
     print("\n  Car Price Checker -> http://localhost:5000\n")
-    flask_app.run(debug=True, port=5000)
+    app.run(debug=True, port=5000)
