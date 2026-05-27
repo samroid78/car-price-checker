@@ -266,15 +266,15 @@ def _run_playwright(url: str, target: dict, result: dict) -> None:
     log.info("[AutoTrader] Launching browser for: %s", url)
 
     with sync_playwright() as p:
-        # Prefer real Chrome (much better Cloudflare bypass than Playwright Chromium)
+        # Try real Chrome first (if installed locally), fall back to bundled Chromium
+        # On Railway/cloud: only bundled Chromium is available
         browser = None
         for attempt in [
-            dict(channel="chrome",   headless=True),   # real Chrome, headless
-            dict(channel="chrome",   headless=False),  # real Chrome, visible (fallback)
-            dict(channel=None,       headless=True,    # bundled Chromium + stealth
+            dict(channel="chrome",   headless=True),   # real Chrome (local dev)
+            dict(channel=None,       headless=True,    # bundled Chromium (cloud/Railway)
                  args=["--disable-blink-features=AutomationControlled",
                         "--no-sandbox", "--disable-dev-shm-usage",
-                        "--window-size=1440,900"]),
+                        "--disable-gpu", "--window-size=1440,900"]),
         ]:
             try:
                 ch = attempt.pop("channel", None)

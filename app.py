@@ -375,5 +375,7 @@ def check_car():
 
 
 if __name__ == "__main__":
-    print("\n  Car Price Checker -> http://localhost:5000\n")
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    debug = os.environ.get("FLASK_ENV", "production") == "development"
+    print(f"\n  Car Price Checker -> http://localhost:{port}\n")
+    app.run(debug=debug, port=port, host="0.0.0.0")

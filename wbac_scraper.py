@@ -11,6 +11,7 @@ STEALTH_ARGS = [
     "--disable-blink-features=AutomationControlled",
     "--no-sandbox",
     "--disable-dev-shm-usage",
+    "--disable-gpu",
 ]
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

@@ -26,6 +26,7 @@ STEALTH_ARGS = [
     "--disable-blink-features=AutomationControlled",
     "--no-sandbox",
     "--disable-dev-shm-usage",
+    "--disable-gpu",
 ]
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -63,8 +64,8 @@ def get_motorway_valuation(reg: str, mileage: int) -> dict:
         with sync_playwright() as p:
             browser = None
             for kwargs in [
-                {"channel": "chrome", "headless": True},
-                {"headless": True, "args": STEALTH_ARGS},
+                {"channel": "chrome", "headless": True},     # local dev (Chrome installed)
+                {"headless": True, "args": STEALTH_ARGS},    # Railway/cloud (bundled Chromium)
             ]:
                 try:
                     browser = p.chromium.launch(**kwargs)
