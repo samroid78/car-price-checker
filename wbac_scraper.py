@@ -181,64 +181,115 @@ def _extract_valuation(text: str) -> dict:
     return data
 
 
-def extract_autotrader_model(make: str, model: str, wbac_description: str) -> str:
+def extract_wbac_specs(model: str, wbac_description: str) -> dict:
     """
-    Refine the AutoTrader model string by appending the exact variant/trim
-    extracted from the WBAC description.
+    Extract ALL exact vehicle specifications from a WBAC description string.
+    Returns a dict used to match listings on AutoTrader with full precision.
 
-    Examples:
-      'PORSCHE 911 [991] CARRERA CABRIOLET - S 2dr PDK'  -> '911 Carrera S'
-      'PORSCHE 911 [991] CARRERA CABRIOLET - 4S 2dr PDK' -> '911 Carrera 4S'
-      'PORSCHE 911 [991] TURBO S CABRIOLET 2dr PDK'      -> '911 Turbo S'
-      'BMW 3 SERIES 320D M SPORT ...'                     -> '3 Series 320d M Sport'
+    WBAC format example:
+      'PORSCHE 911 [991] CARRERA CABRIOLET - S 2dr PDK • 2013 • Silver • Automatic'
+
+    Returns:
+      {
+        "base_model":    "911",            # base model for the URL
+        "variant":       "Carrera S",      # EXACT variant phrase — MUST appear in AT title
+        "full_model":    "911 Carrera S",  # for display
+        "year":          "2013",
+        "body_type":     "Convertible",
+        "transmission":  "Automatic",
+      }
     """
+    import re as _re
+
+    result = {
+        "base_model":   model,
+        "variant":      "",
+        "full_model":   model,
+        "year":         "",
+        "body_type":    "",
+        "transmission": "",
+    }
+
     if not wbac_description:
-        return model
+        return result
 
     desc = wbac_description.upper()
 
-    # ── Variant patterns — order matters (longer/more specific first) ──
-    VARIANT_PATTERNS = [
-        # Porsche 911
-        ("TURBO S",          "Turbo S"),
-        ("TURBO",            "Turbo"),
-        ("GT3 RS",           "GT3 RS"),
-        ("GT3",              "GT3"),
-        ("GT2 RS",           "GT2 RS"),
-        ("GT2",              "GT2"),
-        ("GTS",              "GTS"),
-        ("CARRERA 4 GTS",    "Carrera 4 GTS"),
-        ("CARRERA 4S",       "Carrera 4S"),
-        ("CARRERA 4",        "Carrera 4"),
-        ("CARRERA S",        "Carrera S"),
-        ("CARRERA",          "Carrera"),
-        # BMW
-        ("M3",  "M3"), ("M4",  "M4"), ("M5",  "M5"),
-        # Mercedes
-        ("AMG",  "AMG"),
-        # Audi
-        ("RS",  "RS"), ("S LINE", "S Line"),
-    ]
+    # ── Step 1: Extract year from bullet-separated parts ──────────────────
+    parts = [p.strip() for p in wbac_description.split("•")]
+    if len(parts) >= 2:
+        ym = _re.search(r"\b(19|20)\d{2}\b", parts[1])
+        if ym:
+            result["year"] = ym.group(0)
+    if len(parts) >= 4:
+        trans_part = parts[3].strip().lower()
+        if "automatic" in trans_part or "auto" in trans_part:
+            result["transmission"] = "Automatic"
+        elif "manual" in trans_part:
+            result["transmission"] = "Manual"
 
-    # Special WBAC format: "CARRERA CABRIOLET - S" means Carrera S
-    import re as _re
-    suf = _re.search(r"CARRERA\s+\w+\s*-\s*(4S|S|GTS|4 GTS)", desc)
-    if suf:
-        suffix = suf.group(1).strip()
-        if suffix == "S":
-            return f"{model} Carrera S"
-        elif suffix == "4S":
-            return f"{model} Carrera 4S"
-        elif suffix == "GTS":
-            return f"{model} Carrera GTS"
-        elif suffix == "4 GTS":
-            return f"{model} Carrera 4 GTS"
+    # ── Step 2: Body type ────────────────────────────────────────────────
+    for bt_wbac, bt_at in [
+        ("CABRIOLET",     "Convertible"),
+        ("CONVERTIBLE",   "Convertible"),
+        ("ROADSTER",      "Convertible"),
+        ("TARGA",         "Convertible"),
+        ("COUPE",         "Coupe"),
+        ("FASTBACK",      "Coupe"),
+        ("HATCHBACK",     "Hatchback"),
+        ("SALOON",        "Saloon"),
+        ("ESTATE",        "Estate"),
+        ("SUV",           "SUV"),
+    ]:
+        if bt_wbac in desc:
+            result["body_type"] = bt_at
+            break
 
-    for pattern, label in VARIANT_PATTERNS:
-        if pattern in desc:
-            return f"{model} {label}"
+    # ── Step 3: Transmission from description ────────────────────────────
+    if not result["transmission"]:
+        for kw, label in [("PDK", "Automatic"), ("DSG", "Automatic"), ("TIPTRONIC", "Automatic"),
+                           ("AUTOMATIC", "Automatic"), ("MANUAL", "Manual")]:
+            if kw in desc:
+                result["transmission"] = label
+                break
 
-    return model   # fallback: no variant refinement found
+    # ── Step 4: Extract EXACT variant phrase ─────────────────────────────
+    # WBAC format: "CARRERA BODY - SUFFIX" means "Carrera SUFFIX"
+    # e.g. "CARRERA CABRIOLET - S" → "Carrera S"  (NOT "Carrera 4S", NOT base "Carrera")
+    suf_match = _re.search(r"CARRERA\s+\w+\s*-\s*(4 GTS|4S|GTS|S)\b", desc)
+    if suf_match:
+        suffix = suf_match.group(1).strip()
+        variant_map = {"S": "Carrera S", "4S": "Carrera 4S", "GTS": "Carrera GTS", "4 GTS": "Carrera 4 GTS"}
+        result["variant"] = variant_map.get(suffix, f"Carrera {suffix}")
+    else:
+        # Full variant patterns — longest/most specific first
+        VARIANTS = [
+            ("TURBO S",       "Turbo S"),
+            ("TURBO",         "Turbo"),
+            ("GT3 RS",        "GT3 RS"),
+            ("GT3",           "GT3"),
+            ("GT2 RS",        "GT2 RS"),
+            ("GT2",           "GT2"),
+            ("CARRERA 4 GTS", "Carrera 4 GTS"),
+            ("CARRERA 4S",    "Carrera 4S"),
+            ("CARRERA 4",     "Carrera 4"),
+            ("GTS",           "GTS"),
+            ("CARRERA",       "Carrera"),
+        ]
+        for pattern, label in VARIANTS:
+            if pattern in desc:
+                result["variant"] = label
+                break
+
+    result["base_model"] = model
+    result["full_model"] = f"{model} {result['variant']}".strip() if result["variant"] else model
+    return result
+
+
+def extract_autotrader_model(make: str, model: str, wbac_description: str) -> str:
+    """Legacy wrapper — returns the full model string for the AutoTrader search."""
+    specs = extract_wbac_specs(model, wbac_description)
+    return specs["full_model"]
 
 
 def _detect_transmission(text: str, data: dict, override: bool = False) -> None:

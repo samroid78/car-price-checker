@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
 
-from wbac_scraper import get_wbac_data, extract_autotrader_model
+from wbac_scraper import get_wbac_data, extract_autotrader_model, extract_wbac_specs
 from services.autotrader_service  import search_autotrader
 from services.vehicle_match_service import normalize_price
 
@@ -306,23 +306,31 @@ def check_car():
 
     at_data = {}
     if make and model:
-        exact_year = vehicle.get("year", year)
+        # ── Extract EXACT specs from WBAC — this is the source of truth ──
+        # Every field here MUST match in the AutoTrader listings we return.
+        wbac_specs = extract_wbac_specs(model, wbac_data.get("wbac_description", ""))
 
-        # Build a refined model string using the exact variant from WBAC
-        # e.g. "911" + WBAC Carrera S description → "911 Carrera S"
-        at_model = extract_autotrader_model(
-            make, model, wbac_data.get("wbac_description", "")
-        )
-        log.info("[API] AutoTrader search: %s %s (year=%s)", make, at_model, exact_year)
+        exact_year     = wbac_specs.get("year")         or vehicle.get("year", year)
+        exact_variant  = wbac_specs.get("variant", "")  # e.g. "Carrera S"
+        exact_body     = wbac_specs.get("body_type")    or vehicle.get("body_type") or wbac_data.get("body_type")
+        exact_trans    = wbac_specs.get("transmission") or vehicle.get("transmission") or wbac_data.get("transmission")
+        exact_fuel     = vehicle.get("fuel_type")       or wbac_data.get("fuel_type")
+        at_model       = wbac_specs["full_model"]        # e.g. "911 Carrera S"
+
+        log.info("[API] WBAC confirmed specs: %s %s | year=%s | body=%s | trans=%s | fuel=%s | variant='%s'",
+                 make, at_model, exact_year, exact_body, exact_trans, exact_fuel, exact_variant)
 
         at_data = search_autotrader(
             make, at_model, exact_year, mileage,
-            body_type    = vehicle.get("body_type")    or wbac_data.get("body_type"),
-            fuel_type    = vehicle.get("fuel_type")    or wbac_data.get("fuel_type"),
-            transmission = vehicle.get("transmission") or wbac_data.get("transmission"),
+            body_type    = exact_body,
+            fuel_type    = exact_fuel,
+            transmission = exact_trans,
         )
-        # Store the refined model used for display
-        at_data["model_searched"] = at_model
+        # Carry through the WBAC-confirmed specs for UI display
+        at_data["model_searched"]    = at_model
+        at_data["variant_confirmed"] = exact_variant
+        at_data["year_confirmed"]    = exact_year
+        at_data["wbac_specs"]        = wbac_specs
     else:
         at_data = {"warnings": ["Make/model required for AutoTrader search."]}
 

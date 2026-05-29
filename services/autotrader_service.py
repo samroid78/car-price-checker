@@ -300,7 +300,7 @@ def search_autotrader(
         "make": make, "model": base_model, "year": target_year,
         "mileage": mileage, "body_type": body_type,
         "fuel_type": fuel_type, "transmission": transmission,
-        "variant_keywords": variant_keywords,   # used to filter listings by title
+        "variant_keywords": variant_keywords,   # exact variant PHRASE e.g. "Carrera S"
     }
 
     try:
@@ -575,6 +575,10 @@ def _parse_at_html(html: str) -> list:
     return results
 
 
+_NOISE = {"loading", "toggle pictures", "save advert", "reserved online",
+          "great price", "good price", "fair price", "lower price",
+          "reserve online", "private seller", "part exchange", "finance available"}
+
 def _extract_card(card) -> dict | None:
     text = card.get_text(" ", strip=True)
     pm = re.search(r"£\s*([\d,]+)", text)
@@ -590,8 +594,40 @@ def _extract_card(card) -> dict | None:
     mm = re.search(r"([\d,]+)\s*miles?", text, re.I)
     mileage = normalize_mileage(mm.group(1)) if mm else None
 
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
-    title = lines[0][:100] if lines else text[:100]
+    # ── Smart title extraction ─────────────────────────────────────────────
+    # Strategy 1: look for heading/title HTML elements
+    title = ""
+    for sel in ["h2", "h3", "h4",
+                lambda t: t.get("class") and
+                any("title" in c.lower() or "name" in c.lower() or "heading" in c.lower()
+                    for c in (t.get("class") or []))]:
+        try:
+            el = card.find(sel)
+            if el:
+                t = el.get_text(" ", strip=True)
+                if t and len(t) > 8 and "loading" not in t.lower():
+                    title = t[:100]
+                    break
+        except Exception:
+            pass
+
+    # Strategy 2: first non-noise line of text
+    if not title:
+        lines = [l.strip() for l in text.split() if len(l.strip()) > 2]
+        # Rebuild meaningful phrases — skip noise words
+        clean_lines = []
+        full_text = " ".join(lines)
+        for line in re.split(r"  +|\n", card.get_text("  ", strip=True)):
+            line = line.strip()
+            if not line or len(line) < 5:
+                continue
+            if any(noise in line.lower() for noise in _NOISE):
+                continue
+            clean_lines.append(line)
+        if clean_lines:
+            title = clean_lines[0][:100]
+        else:
+            title = text[:80]
 
     fuel = next((f for f in ("Petrol","Diesel","Electric","Hybrid")
                  if f.lower() in text.lower()), None)
@@ -611,6 +647,7 @@ def _extract_card(card) -> dict | None:
 
     return {
         "title":        title,
+        "full_text":    text,          # full card text for variant phrase matching
         "price":        f"£{price_num:,}",
         "price_num":    price_num,
         "year":         year,
@@ -629,23 +666,30 @@ def _extract_card(card) -> dict | None:
 def _score_and_filter(raw: list, target: dict, result: dict) -> None:
     target_year      = target.get("year") or 0
     mileage          = target.get("mileage") or 0
-    variant_keywords = (target.get("variant_keywords") or "").upper().split()
+    # ── Variant phrase from WBAC (exact phrase match required) ───────────────
+    # The variant is a PHRASE e.g. "Carrera S" — ALL words must appear
+    # consecutively in the listing title.  "Carrera 4S" or base "Carrera" won't match.
+    variant_phrase = (target.get("variant_keywords") or "").strip().upper()
 
-    def _title_matches_variant(title: str) -> bool:
-        """Check if all variant keywords appear in the listing title."""
-        if not variant_keywords:
+    def _title_matches_variant(title: str, full_text: str = "") -> bool:
+        """
+        PHRASE match — variant phrase must appear in the listing title OR full card text.
+        Searching full text catches cases where the React title says 'Loading...'
+        but the variant name appears elsewhere in the card (e.g. spec rows).
+        """
+        if not variant_phrase:
             return True
-        t = title.upper()
-        return all(kw in t for kw in variant_keywords)
+        return variant_phrase in title.upper() or variant_phrase in full_text.upper()
 
     def _filter(listings, yr_spread, mi_tol, require_variant=True):
+        """Filter by year, mileage, and (optionally) exact variant phrase."""
         out, relaxed = [], False
         for l in listings:
             ly = l.get("year") or 0
             lm = l.get("mileage") or 0
-            # Variant filter — only keep listings matching the exact variant
-            if require_variant and variant_keywords:
-                if not _title_matches_variant(l.get("title", "")):
+            # Strict variant phrase check — also searches full card text
+            if require_variant and variant_phrase:
+                if not _title_matches_variant(l.get("title", ""), l.get("full_text", "")):
                     continue
             if lm and mileage and abs(lm - mileage) > mi_tol:
                 continue
@@ -658,33 +702,44 @@ def _score_and_filter(raw: list, target: dict, result: dict) -> None:
             out.append(l)
         return out, relaxed
 
-    variant_label = f' · Variant: {" ".join(v.title() for v in variant_keywords)}' if variant_keywords else ""
+    vl = f" · {variant_phrase.title()}" if variant_phrase else ""
 
-    # Tier 1: exact year, ±10k miles, exact variant
+    # Tier 1: exact year + exact variant phrase + ±10k miles
     candidates, relaxed = _filter(raw, 0, _MILE_TOLERANCE, require_variant=True)
-    label = f"Exact year {target_year} · Mileage ±{_MILE_TOLERANCE:,} mi{variant_label}"
+    label = f"Exact year {target_year} · Exact variant{vl} · Mileage ±{_MILE_TOLERANCE:,} mi"
+
     if len(candidates) < 2:
-        # Tier 2: ±1 year, exact variant
+        # Tier 2: ±1 year + exact variant
         candidates, relaxed = _filter(raw, 1, _MILE_TOLERANCE, require_variant=True)
-        label = f"Year ±1 · Mileage ±{_MILE_TOLERANCE:,} mi{variant_label}"
+        label = f"Year ±1 · Exact variant{vl} · Mileage ±{_MILE_TOLERANCE:,} mi"
+
     if len(candidates) < 2:
-        # Tier 3: ±2 years, wider mileage, exact variant
+        # Tier 3: ±2 years + exact variant + wider mileage
         candidates, relaxed = _filter(raw, 2, _MILE_TOLERANCE * 2, require_variant=True)
-        label = f"Year ±2 · Mileage ±20,000 mi{variant_label}"
-    if not candidates and variant_keywords:
-        # Tier 4: relax variant (show all matching year/mileage, note the relaxation)
+        label = f"Year ±2 · Exact variant{vl} · Mileage ±20,000 mi"
+
+    if not candidates and variant_phrase:
+        # Tier 4: RELAX variant — show all year/mileage matches regardless of variant
+        # This is a last resort — clearly labelled as relaxed
         candidates, relaxed = _filter(raw, 1, _MILE_TOLERANCE, require_variant=False)
-        label = f"Year ±1 · Mileage ±{_MILE_TOLERANCE:,} mi · Variant relaxed (no exact {' '.join(v.title() for v in variant_keywords)} found)"
+        label = f"⚠️ No exact {variant_phrase.title()} found — showing all 911 (year ±1 · mileage ±{_MILE_TOLERANCE:,} mi)"
+
     if not candidates:
         candidates, relaxed = raw, True
-        label = "All available (no close match found)"
+        label = "No matching listings found for this spec"
 
     scored = []
     for l in candidates:
         m = compute_confidence(target, l)
-        l.update(matchConfidence=m["confidence"], matchScore=m["score"],
-                 matchReasons=m["reasons"], relaxedYear=m["relaxed_year"],
-                 variantMatch=_title_matches_variant(l.get("title", "")))
+        vm = _title_matches_variant(l.get("title", ""), l.get("full_text", ""))
+        l.update(
+            matchConfidence  = m["confidence"],
+            matchScore       = m["score"],
+            matchReasons     = m["reasons"],
+            relaxedYear      = m["relaxed_year"],
+            variantMatch     = vm,
+            variantMatchLabel= "✅ Exact match" if vm else "⚠️ Variant not confirmed",
+        )
         scored.append(l)
     scored.sort(key=lambda x: x["matchScore"], reverse=True)
 
