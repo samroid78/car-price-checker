@@ -192,7 +192,7 @@
 
 <header>
   <div class="logo"><div class="logo-icon">🚗</div><h1>Car Price Checker</h1></div>
-  <p class="subtitle">Enter a registration &amp; mileage — we get the trade buying price from WBAC, Carwow &amp; Motorway, then find the exact retail price on AutoTrader.</p>
+  <p class="subtitle">Enter a registration &amp; mileage — WBAC gives the trade buying price, AutoTrader shows the exact retail selling price for the same variant.</p>
 </header>
 
 <div class="search-card">
@@ -217,8 +217,8 @@
     </div>
     <button class="check-btn" id="searchBtn" onclick="checkCar()">Get Trade &amp; Retail Prices</button>
     <p class="form-hint">
-      <strong style="color:var(--text)">Part 1</strong> — WBAC, Carwow &amp; Motorway will tell us what they'd pay to buy your car today.<br/>
-      <strong style="color:var(--text)">Part 2</strong> — AutoTrader will show what the same car sells for at retail, matched exactly on make, model, year, fuel, gearbox &amp; body type.
+      <strong style="color:var(--text)">Part 1</strong> — We Buy Any Car gives the guaranteed trade buying price for your exact car.<br/>
+      <strong style="color:var(--text)">Part 2</strong> — AutoTrader shows the retail price for the <strong style="color:#93c5fd">exact variant</strong> (e.g. Carrera S, not all 911s) matched on year, fuel, gearbox &amp; body type.
     </p>
   </div>
 </div>
@@ -248,8 +248,8 @@ function showLoader() {
   status.innerHTML = `
     <div class="loader">
       <div class="spinner"></div>
-      <p>Contacting DVLA · WBAC · Carwow · Motorway · AutoTrader…</p>
-      <p>All sources run in parallel — allow 40–70 seconds</p>
+      <p>Contacting DVLA · We Buy Any Car · AutoTrader…</p>
+      <p>Looking up vehicle &amp; finding exact variant matches — ~30–50 seconds</p>
     </div>`;
 }
 
@@ -314,25 +314,55 @@ function renderTradeCard(icon, name, data, directUrl, fallbackUrl) {
   if (price) {
     priceHtml = `<div class="trade-price">${price}</div>`;
   } else if (hasOtp) {
-    // Carwow OTP - vehicle confirmed, just need email click
+    // Carwow OTP — show inline input to enter the code
+    const otpUrl = data.otp_url || url;
     priceHtml = `<div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);
-                             border-radius:8px;padding:12px 14px;margin-bottom:10px">
+                             border-radius:8px;padding:14px;margin-bottom:10px">
       <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
-                  color:#86efac;margin-bottom:5px">✅ Vehicle Confirmed</div>
-      <div style="font-size:.82rem;color:var(--muted)">
-        Check <strong style="color:var(--text)">samroid78@gmail.com</strong> for the Carwow valuation link.<br/>
-        <a href="${url}" target="_blank" rel="noopener"
-           style="color:var(--accent);font-weight:600">Open Carwow valuation →</a>
+                  color:#86efac;margin-bottom:8px">✅ Vehicle Confirmed — Enter OTP</div>
+      <div style="font-size:.8rem;color:var(--muted);margin-bottom:10px">
+        Check <strong style="color:var(--text)">samroid78@gmail.com</strong> for a 6-digit code from Carwow.
       </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="carwow-otp-input" type="text" maxlength="6" placeholder="123456"
+               style="background:var(--surface2);border:2px solid var(--border);border-radius:8px;
+                      color:var(--text);font-size:1.2rem;font-weight:700;padding:8px 12px;
+                      width:110px;letter-spacing:.15em;text-align:center;outline:none"/>
+        <button onclick="submitCarwowOtp('${otpUrl}')"
+                style="background:linear-gradient(135deg,var(--accent),#a855f7);border:none;
+                       border-radius:8px;color:#fff;cursor:pointer;font-family:'Inter',sans-serif;
+                       font-size:.82rem;font-weight:700;padding:9px 16px">
+          Get Valuation →
+        </button>
+      </div>
+      <div id="carwow-otp-status" style="font-size:.75rem;color:var(--muted);margin-top:6px"></div>
     </div>`;
   } else if (isBotBlocked) {
-    priceHtml = `<div style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);
-                             border-radius:8px;padding:11px 14px;margin-bottom:10px;font-size:.78rem;
-                             color:var(--muted);line-height:1.55">
-      <strong style="color:#fcd34d">Temporarily unavailable</strong><br/>
-      ${name} is blocking automated requests right now (this is normal after multiple lookups).<br/>
-      <a href="${url||fallbackUrl}" target="_blank" rel="noopener"
-         style="color:var(--accent);font-weight:600">Get ${name} valuation manually →</a>
+    // For Motorway specifically — show the magic link paste box
+    const isMwy = name === 'Motorway';
+    priceHtml = `<div style="background:rgba(79,126,248,.07);border:1px solid rgba(79,126,248,.2);
+                             border-radius:8px;padding:14px;margin-bottom:10px">
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+                  color:#93c5fd;margin-bottom:8px">${isMwy ? '🛣️ Motorway — Paste Sign-in Link' : '⚠️ Temporarily unavailable'}</div>
+      <div style="font-size:.79rem;color:var(--muted);margin-bottom:10px">
+        ${isMwy
+          ? 'Check <strong style="color:var(--text)">samroid78@gmail.com</strong> for a Motorway sign-in email. Copy the full link and paste it below.'
+          : `${name} is blocking automated requests. Try again in a few minutes.`}
+      </div>
+      ${isMwy ? `<div style="display:flex;gap:8px;flex-direction:column">
+        <input id="motorway-link-input" type="text" placeholder="Paste the full Motorway sign-in link from your email…"
+               style="background:var(--surface2);border:2px solid var(--border);border-radius:8px;
+                      color:var(--text);font-size:.8rem;padding:9px 12px;outline:none;width:100%"/>
+        <button onclick="submitMotorwayLink()"
+                style="background:linear-gradient(135deg,var(--accent),#a855f7);border:none;
+                       border-radius:8px;color:#fff;cursor:pointer;font-family:'Inter',sans-serif;
+                       font-size:.82rem;font-weight:700;padding:9px 16px;align-self:flex-start">
+          Get Valuation →
+        </button>
+      </div>
+      <div id="motorway-link-status" style="font-size:.75rem;color:var(--muted);margin-top:6px"></div>`
+      : `<a href="${url||fallbackUrl}" target="_blank" rel="noopener"
+           style="color:var(--accent);font-weight:600">Get ${name} valuation manually →</a>`}
     </div>`;
   } else {
     priceHtml = `<div class="trade-price na">—</div>`;
@@ -354,8 +384,9 @@ function renderTradeCard(icon, name, data, directUrl, fallbackUrl) {
     data.model ? ['Model', data.model] : null,
   ].filter(Boolean).slice(0, 4);
 
+  const cardId = name === 'Carwow' ? 'carwow-trade-card' : name === 'Motorway' ? 'motorway-trade-card' : '';
   return `
-    <div class="trade-card">
+    <div class="trade-card" ${cardId ? `id="${cardId}"` : ''}>
       <div class="trade-card-head">
         <span style="font-size:1.1rem">${icon}</span>
         <span class="trade-logo">${name}</span>
@@ -559,6 +590,81 @@ function renderGap(wbac, at) {
     </div>`;
 }
 
+// ── Carwow OTP verification ─────────────────────────────────────────────────
+async function submitCarwowOtp(otpUrl) {
+  const otp      = document.getElementById('carwow-otp-input')?.value?.trim();
+  const statusEl = document.getElementById('carwow-otp-status');
+  if (!otp || otp.length !== 6) {
+    if (statusEl) statusEl.textContent = '⚠️ Please enter the 6-digit code from your email.';
+    return;
+  }
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--accent)">⏳ Verifying code…</span>';
+  try {
+    const res  = await fetch('/api/verify-carwow', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ otp, otp_url: otpUrl }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      if (statusEl) statusEl.textContent = '❌ ' + (data.error || 'Error — try again');
+      return;
+    }
+    if (data.valuation) {
+      // Replace the Carwow card body with the confirmed price
+      const card = document.getElementById('carwow-trade-card');
+      if (card) {
+        card.querySelector('.trade-body').innerHTML =
+          `<div class="trade-price">${data.valuation}</div>
+           <div class="trade-sub">Carwow dealer auction — confirmed</div>
+           <div style="font-size:.7rem;color:#86efac;margin-top:6px">✅ VALUATION CONFIRMED</div>`;
+        card.querySelector('.trade-card-head').innerHTML +=
+          '<span style="font-size:.65rem;color:#86efac;margin-left:auto;font-weight:700">CONFIRMED</span>';
+      }
+      if (statusEl) statusEl.textContent = '';
+    } else {
+      if (statusEl) statusEl.textContent = '❌ ' + (data.warnings?.[0] || 'Code rejected — may have expired.');
+    }
+  } catch(e) {
+    if (statusEl) statusEl.textContent = '❌ Network error — make sure Flask is running';
+  }
+}
+
+// ── Motorway magic link verification ───────────────────────────────────────
+async function submitMotorwayLink() {
+  const link     = document.getElementById('motorway-link-input')?.value?.trim();
+  const statusEl = document.getElementById('motorway-link-status');
+  if (!link) {
+    if (statusEl) statusEl.textContent = '⚠️ Please paste the sign-in link from your email.';
+    return;
+  }
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--accent)">⏳ Following sign-in link…</span>';
+  try {
+    const res  = await fetch('/api/verify-motorway', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ magic_link: link }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      if (statusEl) statusEl.textContent = '❌ ' + (data.error || 'Error');
+      return;
+    }
+    if (data.valuation) {
+      const card = document.getElementById('motorway-trade-card');
+      if (card) {
+        card.querySelector('.trade-body').innerHTML =
+          `<div class="trade-price">${data.valuation}</div>
+           <div class="trade-sub">Motorway dealer marketplace — confirmed</div>
+           <div style="font-size:.7rem;color:#86efac;margin-top:6px">✅ VALUATION CONFIRMED</div>`;
+      }
+      if (statusEl) statusEl.textContent = '';
+    } else {
+      if (statusEl) statusEl.textContent = '❌ ' + (data.warnings?.[0] || 'Link may have expired — request a new one.');
+    }
+  } catch(e) {
+    if (statusEl) statusEl.textContent = '❌ Network error — make sure Flask is running';
+  }
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 async function checkCar() {
   const reg     = regInput.value.trim();
@@ -584,59 +690,41 @@ async function checkCar() {
     const v    = data.vehicle    || {};
     const wbac = data.wbac       || {};
     const at   = data.autotrader || {};
-    const mwy  = data.motorway   || {};
-    const cw   = data.carwow     || {};
 
-    // Trade price values for summary bar
-    const tradePrices = [
-      wbac.valuation_num,
-      mwy.valuation_num,
-      cw.valuation_num,
-    ].filter(Boolean);
-    const tradeMin = tradePrices.length ? Math.min(...tradePrices) : null;
-    const tradeMax = tradePrices.length ? Math.max(...tradePrices) : null;
+    // Variant searched on AutoTrader (refined from WBAC description)
+    const atModelSearched = at.model_searched || modelInput.value.trim() || v.model || '?';
+    const wbacPrice = wbac.valuation_num;
 
     status.innerHTML = `
       <div class="results">
 
         <!-- Vehicle Banner -->
-        ${renderVehicleBanner(data.registration, v, wbac, mwy)}
+        ${renderVehicleBanner(data.registration, v, wbac, {})}
 
-        <!-- SECTION 1: Trade Buying Prices -->
+        <!-- SECTION 1: WBAC Trade Price -->
         <div>
           <div class="section-heading">
             <div class="section-num trade">1</div>
             <div>
-              <div class="section-title">Trade Buying Prices — What they'll pay to BUY your car</div>
-              <div class="section-sub">These are the amounts WBAC, Carwow and Motorway will offer you today</div>
+              <div class="section-title">Trade Buying Price — What We Buy Any Car will pay today</div>
+              <div class="section-sub">Guaranteed offer based on exact vehicle details from their system</div>
             </div>
           </div>
-          <div class="trade-grid">
+          <div style="max-width:420px">
             ${renderTradeCard('💰','WBAC', wbac, wbac.wbac_url, `https://www.webuyanycar.com/car-valuation/?vrm=${data.registration}`)}
-            ${renderTradeCard('🚗','Carwow', cw, cw.carwow_direct_url, `https://www.carwow.co.uk/sell-my-car?vrm=${data.registration}`)}
-            ${renderTradeCard('🛣️','Motorway', mwy, mwy.sourceUrl, `https://motorway.co.uk/car-valuation?reg=${data.registration}`)}
           </div>
-          ${tradePrices.length ? `
-          <div class="trade-summary" style="margin-top:14px">
-            <div>
-              <div class="trade-summary-label">Trade buying range</div>
-              <div class="trade-summary-range">
-                ${tradeMin === tradeMax ? gbp(tradeMin) : `${gbp(tradeMin)} – ${gbp(tradeMax)}`}
-              </div>
-            </div>
-            <div class="trade-summary-note">
-              ${tradePrices.length} confirmed offer${tradePrices.length>1?'s':''} from trade buyers
-            </div>
-          </div>` : ''}
         </div>
 
-        <!-- SECTION 2: Retail Prices on AutoTrader -->
+        <!-- SECTION 2: AutoTrader Retail Prices -->
         <div>
           <div class="section-heading">
             <div class="section-num retail">2</div>
             <div>
               <div class="section-title">AutoTrader Retail Prices — What the same car sells for</div>
-              <div class="section-sub">Exact match: same make, model, year, fuel, gearbox, body type · mileage ±10,000 miles</div>
+              <div class="section-sub">
+                Exact variant: <strong style="color:#93c5fd">${atModelSearched}</strong>
+                · same year · same fuel · same gearbox · same body · mileage ±10,000 miles
+              </div>
             </div>
           </div>
           ${renderAutoTrader(at, v, wbac, mwy, mileage)}

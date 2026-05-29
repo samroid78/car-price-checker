@@ -37,7 +37,7 @@ _EMAIL     = "samroid78@gmail.com"
 _FIRSTNAME = "Sam"
 _LASTNAME  = "Sharma"
 _MOBILE    = "07863239691"
-_POSTCODE  = "SW1A1AA"
+_POSTCODE  = "E181BT"
 
 
 def get_motorway_valuation(reg: str, mileage: int) -> dict:
@@ -339,6 +339,93 @@ def get_motorway_valuation(reg: str, mileage: int) -> dict:
         msg = f"Motorway error: {e}"
         log.error(msg)
         result["warnings"].append(msg)
+
+    return result
+
+
+def complete_motorway_magic_link(magic_link_url: str) -> dict:
+    """
+    Follow a Motorway magic link from the sign-in email.
+    The link signs the user in and redirects to the car valuation page.
+    Called from /api/verify-motorway endpoint.
+    """
+    result = {
+        "valuation": None, "valuation_num": None, "valuationRange": {},
+        "description": None, "make": None, "model": None,
+        "body_type": None, "fuel_type": None, "colour": None, "year": None,
+        "sourceUrl": magic_link_url, "screenshot": None, "warnings": [],
+        "scraped_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        with sync_playwright() as p:
+            browser = None
+            for kwargs in [
+                {"channel": "chrome", "headless": True},
+                {"headless": True, "args": STEALTH_ARGS},
+            ]:
+                try:
+                    browser = p.chromium.launch(**kwargs)
+                    break
+                except Exception:
+                    pass
+            if not browser:
+                result["warnings"].append("Could not launch browser.")
+                return result
+
+            ctx  = browser.new_context(
+                locale="en-GB", timezone_id="Europe/London",
+                user_agent=UA,
+                extra_http_headers={"Accept-Language": "en-GB,en;q=0.9"},
+                viewport={"width": 1440, "height": 900},
+            )
+            page = ctx.new_page()
+            page.add_init_script('Object.defineProperty(navigator,"webdriver",{get:()=>undefined})')
+
+            log.info("[Motorway magic link] Navigating to: %s", magic_link_url[:80])
+            page.goto(magic_link_url, timeout=30000)
+            page.wait_for_load_state("domcontentloaded", timeout=15000)
+            page.wait_for_timeout(4000)
+
+            log.info("[Motorway magic link] Landed at: %s", page.url)
+            val_text = page.inner_text("body")
+
+            # Extract valuation
+            result.update(_parse_vehicle_text(val_text))
+            _extract_valuation(val_text, result)
+            result["sourceUrl"] = page.url
+
+            if result.get("valuation"):
+                log.info("[Motorway magic link] Valuation: %s", result["valuation"])
+                # Save session for future fast-path reuse
+                try:
+                    ctx.storage_state(path=_SESSION_FILE)
+                    log.info("[Motorway magic link] Session saved")
+                except Exception:
+                    pass
+            else:
+                # Check if still on sign-in page
+                if "sign in" in val_text.lower() or "log in" in val_text.lower():
+                    result["warnings"].append(
+                        "Magic link did not sign in — it may have expired. "
+                        "Request a new link from Motorway."
+                    )
+                else:
+                    result["warnings"].append(
+                        "Signed in but valuation not found on this page."
+                    )
+
+            try:
+                ss = page.screenshot(type="jpeg", quality=85,
+                                     clip={"x":0,"y":0,"width":1440,"height":900})
+                result["screenshot"] = base64.b64encode(ss).decode("ascii")
+            except Exception:
+                pass
+
+            browser.close()
+
+    except Exception as e:
+        result["warnings"].append(f"Motorway magic link error: {e}")
 
     return result
 

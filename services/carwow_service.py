@@ -14,10 +14,13 @@ Uses OFCOM-designated fictional UK mobile 07700 900000-range for phone field.
 All contact data uses reserved/fictional domains and numbers to avoid real impact.
 """
 import re
+import os
 import base64
 import logging
 from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright, TimeoutError as PTE
+
+_CARWOW_SESSION_FILE = os.path.join(os.path.dirname(__file__), "..", "carwow_session.json")
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +38,7 @@ UA = (
 # Fictional/test contact data — safe to use in automated forms
 _TEST_EMAIL    = "samroid78@gmail.com"
 _TEST_NAME     = "Sam"
-_TEST_POSTCODE = "SW1A1AA"
+_TEST_POSTCODE = "E181BT"
 _TEST_PHONES   = ["07863239691"]
 
 
@@ -232,13 +235,16 @@ def get_carwow_valuation(
             val_text = page.inner_text("body")
             log.info("[Carwow] Results page URL: %s", page.url)
 
-            # Detect OTP gate
+            # Detect OTP gate — save session so user can enter the code immediately
             if "check your email" in val_text.lower() or "enter the code" in val_text.lower():
-                result["warnings"].append(
-                    "Carwow requires email verification (OTP) to show the valuation price. "
-                    "Use the 'Get Carwow valuation' link below with your real email to complete it."
-                )
-                result["confidence"] = "N/A"
+                result["otp_required"] = True
+                result["otp_url"]      = page.url
+                # Save the live browser session so entering the OTP doesn't need a new email
+                try:
+                    ctx.storage_state(path=_CARWOW_SESSION_FILE)
+                    log.info("[Carwow] Session saved for OTP entry")
+                except Exception as se:
+                    log.warning("[Carwow] Could not save session: %s", se)
             else:
                 _extract_carwow_valuation(val_text, result)
 
@@ -248,6 +254,124 @@ def get_carwow_valuation(
         msg = f"Carwow error: {e}"
         log.error(msg)
         result["warnings"].append(msg)
+
+    return result
+
+
+def complete_carwow_otp(otp_code: str, otp_url: str) -> dict:
+    """
+    Resume a saved Carwow session, enter the OTP from the user's email,
+    and extract the valuation price.
+    Called from /api/verify-carwow endpoint.
+    """
+    result = {
+        "valuation": None, "valuation_num": None, "valuationRange": {},
+        "vehicle_description": None, "warnings": [],
+        "scraped_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    import json
+    session_state = None
+    if os.path.exists(_CARWOW_SESSION_FILE):
+        try:
+            with open(_CARWOW_SESSION_FILE) as f:
+                session_state = json.load(f)
+        except Exception:
+            pass
+
+    try:
+        with sync_playwright() as p:
+            browser = None
+            for kwargs in [
+                {"channel": "chrome", "headless": True},
+                {"headless": True, "args": STEALTH_ARGS},
+            ]:
+                try:
+                    browser = p.chromium.launch(**kwargs)
+                    break
+                except Exception:
+                    pass
+            if not browser:
+                result["warnings"].append("Could not launch browser.")
+                return result
+
+            ctx_kwargs = {
+                "locale": "en-GB", "timezone_id": "Europe/London",
+                "user_agent": UA,
+                "extra_http_headers": {"Accept-Language": "en-GB,en;q=0.9"},
+                "viewport": {"width": 1440, "height": 900},
+            }
+            if session_state:
+                ctx_kwargs["storage_state"] = session_state
+
+            ctx  = p.chromium.new_context if False else browser.new_context
+            ctx  = browser.new_context(**ctx_kwargs)
+            page = ctx.new_page()
+            page.add_init_script('Object.defineProperty(navigator,"webdriver",{get:()=>undefined})')
+
+            # Navigate to the OTP page
+            page.goto(otp_url, timeout=25000)
+            page.wait_for_load_state("domcontentloaded", timeout=10000)
+            page.wait_for_timeout(1500)
+
+            log.info("[Carwow OTP] At page: %s", page.url)
+
+            # Find OTP input and enter the code
+            otp_entered = False
+            for sel in ['input[autocomplete="one-time-code"]', 'input[name="otp"]',
+                        'input[maxlength="6"]', 'input[type="number"]']:
+                try:
+                    el = page.locator(sel).first
+                    if el.is_visible(timeout=3000):
+                        el.click()
+                        el.press("Control+a"); el.press("Delete")
+                        el.type(otp_code, delay=30)
+                        page.wait_for_timeout(400)
+                        otp_entered = True
+                        log.info("[Carwow OTP] Code entered via %s", sel)
+                        break
+                except PTE:
+                    continue
+
+            if not otp_entered:
+                result["warnings"].append("Could not find OTP input on Carwow page.")
+                browser.close()
+                return result
+
+            # Submit
+            for btn in ['button:has-text("Log in")', 'button:has-text("Verify")',
+                        'button:has-text("Continue")', 'button[type="submit"]']:
+                try:
+                    b = page.locator(btn).first
+                    if b.is_visible(timeout=2000):
+                        b.click(timeout=5000)
+                        page.wait_for_timeout(5000)
+                        break
+                except PTE:
+                    continue
+
+            log.info("[Carwow OTP] After submit: %s", page.url)
+            val_text = page.inner_text("body")
+
+            if "incorrect" in val_text.lower() or "invalid" in val_text.lower():
+                result["warnings"].append("OTP code was rejected — it may have expired. Please request a new code.")
+            elif "check your email" in val_text.lower():
+                result["warnings"].append("Still on verification page — OTP may have expired.")
+            else:
+                _extract_carwow_valuation(val_text, result)
+                result["sourceUrl"] = page.url
+                # Screenshot
+                try:
+                    ss = page.screenshot(type="jpeg", quality=85,
+                                         clip={"x":0,"y":0,"width":1440,"height":900})
+                    result["screenshot"] = base64.b64encode(ss).decode("ascii")
+                except Exception:
+                    pass
+
+            browser.close()
+
+    except Exception as e:
+        result["warnings"].append(f"Carwow OTP error: {e}")
 
     return result
 

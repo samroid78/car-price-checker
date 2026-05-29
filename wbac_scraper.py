@@ -32,7 +32,7 @@ BODY_TYPES = [
 
 _TEST_PHONE    = "07863239691"
 _TEST_EMAIL    = "samroid78@gmail.com"
-_TEST_POSTCODE = "SW1A1AA"
+_TEST_POSTCODE = "E181BT"
 
 
 def get_wbac_data(reg: str, mileage: int) -> dict:
@@ -179,6 +179,66 @@ def _extract_valuation(text: str) -> dict:
             pass
 
     return data
+
+
+def extract_autotrader_model(make: str, model: str, wbac_description: str) -> str:
+    """
+    Refine the AutoTrader model string by appending the exact variant/trim
+    extracted from the WBAC description.
+
+    Examples:
+      'PORSCHE 911 [991] CARRERA CABRIOLET - S 2dr PDK'  -> '911 Carrera S'
+      'PORSCHE 911 [991] CARRERA CABRIOLET - 4S 2dr PDK' -> '911 Carrera 4S'
+      'PORSCHE 911 [991] TURBO S CABRIOLET 2dr PDK'      -> '911 Turbo S'
+      'BMW 3 SERIES 320D M SPORT ...'                     -> '3 Series 320d M Sport'
+    """
+    if not wbac_description:
+        return model
+
+    desc = wbac_description.upper()
+
+    # ── Variant patterns — order matters (longer/more specific first) ──
+    VARIANT_PATTERNS = [
+        # Porsche 911
+        ("TURBO S",          "Turbo S"),
+        ("TURBO",            "Turbo"),
+        ("GT3 RS",           "GT3 RS"),
+        ("GT3",              "GT3"),
+        ("GT2 RS",           "GT2 RS"),
+        ("GT2",              "GT2"),
+        ("GTS",              "GTS"),
+        ("CARRERA 4 GTS",    "Carrera 4 GTS"),
+        ("CARRERA 4S",       "Carrera 4S"),
+        ("CARRERA 4",        "Carrera 4"),
+        ("CARRERA S",        "Carrera S"),
+        ("CARRERA",          "Carrera"),
+        # BMW
+        ("M3",  "M3"), ("M4",  "M4"), ("M5",  "M5"),
+        # Mercedes
+        ("AMG",  "AMG"),
+        # Audi
+        ("RS",  "RS"), ("S LINE", "S Line"),
+    ]
+
+    # Special WBAC format: "CARRERA CABRIOLET - S" means Carrera S
+    import re as _re
+    suf = _re.search(r"CARRERA\s+\w+\s*-\s*(4S|S|GTS|4 GTS)", desc)
+    if suf:
+        suffix = suf.group(1).strip()
+        if suffix == "S":
+            return f"{model} Carrera S"
+        elif suffix == "4S":
+            return f"{model} Carrera 4S"
+        elif suffix == "GTS":
+            return f"{model} Carrera GTS"
+        elif suffix == "4 GTS":
+            return f"{model} Carrera 4 GTS"
+
+    for pattern, label in VARIANT_PATTERNS:
+        if pattern in desc:
+            return f"{model} {label}"
+
+    return model   # fallback: no variant refinement found
 
 
 def _detect_transmission(text: str, data: dict, override: bool = False) -> None:

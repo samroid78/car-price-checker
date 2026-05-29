@@ -89,6 +89,45 @@ _TRANS_MAP = {
 }
 
 
+def _split_base_and_variant(make: str, model: str) -> tuple[str, str]:
+    """
+    Split a refined model string into base model + variant keywords.
+
+    Examples:
+      "911 Carrera S"  →  ("911", "Carrera S")
+      "911 Turbo S"    →  ("911", "Turbo S")
+      "911"            →  ("911", "")
+      "3 Series 320d"  →  ("3 Series", "320d")
+    """
+    if not model:
+        return model, ""
+
+    # Known base models for common makes (extend as needed)
+    KNOWN_BASES = {
+        "PORSCHE": ["911", "CAYENNE", "MACAN", "PANAMERA", "TAYCAN", "BOXSTER", "CAYMAN"],
+        "BMW":     ["1 SERIES", "2 SERIES", "3 SERIES", "4 SERIES", "5 SERIES",
+                    "6 SERIES", "7 SERIES", "8 SERIES", "X1", "X2", "X3", "X4", "X5", "X6", "X7", "M3", "M4", "M5"],
+        "MERCEDES": ["A CLASS", "B CLASS", "C CLASS", "E CLASS", "S CLASS",
+                     "GLA", "GLB", "GLC", "GLE", "GLS", "AMG"],
+        "AUDI":    ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "Q2", "Q3", "Q5", "Q7", "Q8", "TT", "R8"],
+    }
+
+    model_upper = model.upper()
+    make_upper  = make.upper()
+
+    bases = KNOWN_BASES.get(make_upper, [])
+    for base in bases:
+        if model_upper.startswith(base):
+            remainder = model[len(base):].strip()
+            return base.title() if base == make_upper else base, remainder
+
+    # Generic fallback: first word is base model, rest is variant
+    parts = model.split(None, 1)
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return model, ""
+
+
 def build_motors_url(make: str, model: str) -> str:
     """Motors.co.uk path-based URL — used as Cloudflare fallback."""
     ms = make.lower().replace(" ", "-")
@@ -211,7 +250,7 @@ def build_search_url(
 
 def search_autotrader(
     make: str,
-    model: str,
+    model: str,           # may be "911 Carrera S" — we strip to base model for URL
     year: str,
     mileage: int,
     body_type: str = None,
@@ -221,10 +260,24 @@ def search_autotrader(
     """
     Navigate AutoTrader UK directly with real Chrome, take a screenshot,
     and extract structured listing data where possible.
+
+    Variant handling:
+    - AutoTrader's model URL parameter only accepts the base model (e.g. "911"),
+      not the full variant ("911 Carrera S").
+    - We extract the variant keywords from the model string, search with the
+      base model, then FILTER Python-side to only return listings that contain
+      the variant in their title.
+    - This gives precise results: e.g. "Carrera S" not "all 911s".
     """
     target_year = normalize_year(year)
-    url = build_search_url(make, model, target_year, mileage,
+
+    # Split base model from variant: "911 Carrera S" → base="911", variant="Carrera S"
+    base_model, variant_keywords = _split_base_and_variant(make, model)
+
+    url = build_search_url(make, base_model, target_year, mileage,
                            body_type, transmission, fuel_type)
+    log.info("[AutoTrader] Search: %s %s (variant filter: '%s')",
+             make, base_model, variant_keywords or "none")
 
     result = {
         "listings":         [],
@@ -244,9 +297,10 @@ def search_autotrader(
     }
 
     target = {
-        "make": make, "model": model, "year": target_year,
+        "make": make, "model": base_model, "year": target_year,
         "mileage": mileage, "body_type": body_type,
         "fuel_type": fuel_type, "transmission": transmission,
+        "variant_keywords": variant_keywords,   # used to filter listings by title
     }
 
     try:
@@ -573,14 +627,26 @@ def _extract_card(card) -> dict | None:
 
 
 def _score_and_filter(raw: list, target: dict, result: dict) -> None:
-    target_year = target.get("year") or 0
-    mileage     = target.get("mileage") or 0
+    target_year      = target.get("year") or 0
+    mileage          = target.get("mileage") or 0
+    variant_keywords = (target.get("variant_keywords") or "").upper().split()
 
-    def _filter(listings, yr_spread, mi_tol):
+    def _title_matches_variant(title: str) -> bool:
+        """Check if all variant keywords appear in the listing title."""
+        if not variant_keywords:
+            return True
+        t = title.upper()
+        return all(kw in t for kw in variant_keywords)
+
+    def _filter(listings, yr_spread, mi_tol, require_variant=True):
         out, relaxed = [], False
         for l in listings:
             ly = l.get("year") or 0
             lm = l.get("mileage") or 0
+            # Variant filter — only keep listings matching the exact variant
+            if require_variant and variant_keywords:
+                if not _title_matches_variant(l.get("title", "")):
+                    continue
             if lm and mileage and abs(lm - mileage) > mi_tol:
                 continue
             if target_year and ly:
@@ -592,17 +658,23 @@ def _score_and_filter(raw: list, target: dict, result: dict) -> None:
             out.append(l)
         return out, relaxed
 
-    # Tier 1: exact year, ±10k miles
-    candidates, relaxed = _filter(raw, 0, _MILE_TOLERANCE)
-    label = f"Exact year {target_year} · Mileage ±{_MILE_TOLERANCE:,} mi"
+    variant_label = f' · Variant: {" ".join(v.title() for v in variant_keywords)}' if variant_keywords else ""
+
+    # Tier 1: exact year, ±10k miles, exact variant
+    candidates, relaxed = _filter(raw, 0, _MILE_TOLERANCE, require_variant=True)
+    label = f"Exact year {target_year} · Mileage ±{_MILE_TOLERANCE:,} mi{variant_label}"
     if len(candidates) < 2:
-        # Tier 2: ±1 year
-        candidates, relaxed = _filter(raw, 1, _MILE_TOLERANCE)
-        label = f"Year ±1 · Mileage ±{_MILE_TOLERANCE:,} mi"
+        # Tier 2: ±1 year, exact variant
+        candidates, relaxed = _filter(raw, 1, _MILE_TOLERANCE, require_variant=True)
+        label = f"Year ±1 · Mileage ±{_MILE_TOLERANCE:,} mi{variant_label}"
     if len(candidates) < 2:
-        # Tier 3: ±2 years, wider mileage
-        candidates, relaxed = _filter(raw, 2, _MILE_TOLERANCE * 2)
-        label = "Year ±2 · Mileage ±20,000 mi (relaxed)"
+        # Tier 3: ±2 years, wider mileage, exact variant
+        candidates, relaxed = _filter(raw, 2, _MILE_TOLERANCE * 2, require_variant=True)
+        label = f"Year ±2 · Mileage ±20,000 mi{variant_label}"
+    if not candidates and variant_keywords:
+        # Tier 4: relax variant (show all matching year/mileage, note the relaxation)
+        candidates, relaxed = _filter(raw, 1, _MILE_TOLERANCE, require_variant=False)
+        label = f"Year ±1 · Mileage ±{_MILE_TOLERANCE:,} mi · Variant relaxed (no exact {' '.join(v.title() for v in variant_keywords)} found)"
     if not candidates:
         candidates, relaxed = raw, True
         label = "All available (no close match found)"
@@ -611,7 +683,8 @@ def _score_and_filter(raw: list, target: dict, result: dict) -> None:
     for l in candidates:
         m = compute_confidence(target, l)
         l.update(matchConfidence=m["confidence"], matchScore=m["score"],
-                 matchReasons=m["reasons"], relaxedYear=m["relaxed_year"])
+                 matchReasons=m["reasons"], relaxedYear=m["relaxed_year"],
+                 variantMatch=_title_matches_variant(l.get("title", "")))
         scored.append(l)
     scored.sort(key=lambda x: x["matchScore"], reverse=True)
 

@@ -2,15 +2,13 @@ import os
 import re
 import logging
 import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed  # kept for potential future use
 from bs4 import BeautifulSoup
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
 
-from wbac_scraper import get_wbac_data
+from wbac_scraper import get_wbac_data, extract_autotrader_model
 from services.autotrader_service  import search_autotrader
-from services.motorway_service    import get_motorway_valuation
-from services.carwow_service      import get_carwow_valuation
 from services.vehicle_match_service import normalize_price
 
 load_dotenv()
@@ -303,75 +301,63 @@ def check_car():
         if wbac_data.get(field) and not vehicle.get(field):
             vehicle[field] = wbac_data[field]
 
-    # ── Phase 3: Market scrapers in parallel ───────────────────────────────
-    log.info("[API] Phase 3: parallel market scrapes")
+    # ── Phase 3: AutoTrader search with exact variant from WBAC ───────────────
+    log.info("[API] Phase 3: AutoTrader search")
 
-    def run_autotrader():
-        if not (make and model):
-            return {"warnings": ["Make/model required for AutoTrader search."]}
-        # Use exact year from WBAC — vehicle["year"] is set from WBAC/DVLA
+    at_data = {}
+    if make and model:
         exact_year = vehicle.get("year", year)
-        return search_autotrader(
-            make, model, exact_year, mileage,
+
+        # Build a refined model string using the exact variant from WBAC
+        # e.g. "911" + WBAC Carrera S description → "911 Carrera S"
+        at_model = extract_autotrader_model(
+            make, model, wbac_data.get("wbac_description", "")
+        )
+        log.info("[API] AutoTrader search: %s %s (year=%s)", make, at_model, exact_year)
+
+        at_data = search_autotrader(
+            make, at_model, exact_year, mileage,
             body_type    = vehicle.get("body_type")    or wbac_data.get("body_type"),
             fuel_type    = vehicle.get("fuel_type")    or wbac_data.get("fuel_type"),
             transmission = vehicle.get("transmission") or wbac_data.get("transmission"),
         )
+        # Store the refined model used for display
+        at_data["model_searched"] = at_model
+    else:
+        at_data = {"warnings": ["Make/model required for AutoTrader search."]}
 
-    def run_motorway():
-        if not mileage:
-            return {"warnings": ["Mileage required for Motorway valuation."]}
-        return get_motorway_valuation(reg, mileage)
+    insight = _build_insight(wbac_data, at_data, {}, {})
 
-    def run_carwow():
-        if not mileage:
-            return {"warnings": ["Mileage required for Carwow valuation."]}
-        # Carwow uses the registration directly — no need for make/model
-        return get_carwow_valuation(reg, mileage, make=make, model=model, year=year)
-
-    tasks = {
-        "autotrader": run_autotrader,
-        "motorway":   run_motorway,
-        "carwow":     run_carwow,
-    }
-    results = {}
-    with ThreadPoolExecutor(max_workers=3) as exe:
-        future_map = {exe.submit(fn): name for name, fn in tasks.items()}
-        for future in as_completed(future_map):
-            name = future_map[future]
-            try:
-                results[name] = future.result(timeout=120)
-            except Exception as e:
-                log.error("[%s] task failed: %s", name, e)
-                results[name] = {"error": str(e), "warnings": [str(e)]}
-
-    at_data       = results.get("autotrader", {})
-    motorway_data = results.get("motorway",   {})
-    carwow_data   = results.get("carwow",     {})
-
-    # Also promote any Motorway fields (e.g. full model name) to vehicle
-    for field in ("model", "body_type", "fuel_type", "colour"):
-        mwy_val = motorway_data.get(field)
-        if mwy_val and not vehicle.get(field):
-            vehicle[field] = mwy_val
-
-    insight = _build_insight(wbac_data, at_data, motorway_data, carwow_data)
-
-    log.info("[API] Done: WBAC=%s AT=%d listings MWY=%s CW=%s",
+    log.info("[API] Done: WBAC=%s AT=%d listings (model=%s)",
              wbac_data.get("valuation_price"),
              at_data.get("count", 0),
-             motorway_data.get("valuation"),
-             carwow_data.get("valuation"))
+             at_data.get("model_searched", model))
 
     return jsonify({
         "registration": reg,
         "vehicle":      vehicle,
         "wbac":         wbac_data,
         "autotrader":   at_data,
-        "motorway":     motorway_data,
-        "carwow":       carwow_data,
         "insight":      insight,
     })
+
+
+# ── Removed verify endpoints (Carwow/Motorway removed) ────────────────────────
+# Legacy stub kept to avoid 404 if old frontend calls it
+@app.route("/api/verify-carwow", methods=["POST"])
+def verify_carwow():
+    return jsonify({"error": "Carwow removed from this version."}), 410
+    if len(otp) != 6 or not otp.isdigit():
+        return jsonify({"error": "OTP must be 6 digits."}), 400
+
+    log.info("[API] Carwow OTP verification: code=%s", otp)
+    result = complete_carwow_otp(otp, otp_url)
+    return jsonify(result)
+
+
+@app.route("/api/verify-motorway", methods=["POST"])
+def verify_motorway():
+    return jsonify({"error": "Motorway removed from this version."}), 410
 
 
 if __name__ == "__main__":
